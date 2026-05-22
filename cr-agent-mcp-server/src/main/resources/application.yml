@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: cr-agent-mcp-server
+  ai:
+    mcp:
+      server:
+        name: cr-agent-mcp-server
+        version: 1.0.0
+        type: SYNC
+        protocol: STREAMABLE
+
+server:
+  port: 8082
+
+logging:
+  level:
+    com.cragent: DEBUG

@@ -1,0 +1,21 @@
+spring:
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY}
+      chat:
+        options:
+          model: qwen-plus
+          temperature: 0.3
+
+cragent:
+  mcp-server:
+    url: http://localhost:8082
+    connect-timeout: 10s
+    read-timeout: 30s
+  review:
+    max-diff-size: 500000
+    chunk-size: 200
+    sub-agent-timeout: 60
+    verification:
+      enabled: true
+      confidence-threshold: 0.6
