@@ -22,6 +22,7 @@ public class ReviewOrchestrationService {
     }
 
     public ReviewResult review(String repoPath, String baseRef, String headRef) {
+        repoPath = repoPath.replace('\\', '/');
         log.info("Starting review: repo={}, {} -> {}", repoPath, baseRef, headRef);
 
         Map<String, Object> result = stateGraph.execute(repoPath, baseRef, headRef);

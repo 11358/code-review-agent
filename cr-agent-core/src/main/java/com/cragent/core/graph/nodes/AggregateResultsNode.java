@@ -32,12 +32,13 @@ public class AggregateResultsNode {
             }
         }
 
-        // Deduplicate by unique key
+        // Deduplicate by unique key, merge dimensions on collision
         Map<String, ReviewFinding> deduped = new LinkedHashMap<>();
         for (ReviewFinding f : allFindings) {
             deduped.merge(f.uniqueKey(), f, (existing, incoming) -> {
-                // Keep the higher severity
+                existing.mergeDimensions(incoming);
                 if (incoming.getSeverity().ordinal() < existing.getSeverity().ordinal()) {
+                    incoming.mergeDimensions(existing);
                     return incoming;
                 }
                 return existing;

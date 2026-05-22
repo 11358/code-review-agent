@@ -35,12 +35,13 @@ public class ReviewStateGraph {
                             SubAgent securitySubAgent,
                             SubAgent bugSubAgent,
                             SubAgent performanceSubAgent,
-                            FixGuidedVerificationFilter verificationFilter) {
+                            FixGuidedVerificationFilter verificationFilter,
+                            int agentRuns) {
         this.fetchDiffNode = new FetchDiffNode(mcpClient);
         this.parseDiffNode = new ParseDiffNode();
-        this.securityReviewNode = new SpecializedReviewNode(securitySubAgent, "security_findings");
-        this.bugReviewNode = new SpecializedReviewNode(bugSubAgent, "bug_findings");
-        this.performanceReviewNode = new SpecializedReviewNode(performanceSubAgent, "perf_findings");
+        this.securityReviewNode = new SpecializedReviewNode(securitySubAgent, "security_findings", agentRuns);
+        this.bugReviewNode = new SpecializedReviewNode(bugSubAgent, "bug_findings", agentRuns);
+        this.performanceReviewNode = new SpecializedReviewNode(performanceSubAgent, "perf_findings", agentRuns);
         this.aggregateNode = new AggregateResultsNode(List.of("security_findings", "bug_findings", "perf_findings"));
         this.verificationFilter = verificationFilter;
         this.formatOutputNode = new FormatOutputNode();

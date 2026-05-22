@@ -33,9 +33,9 @@ public class ReviewCliRunner implements CommandLineRunner {
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
-                case "--repo" -> repoPath = args[++i];
-                case "--base" -> baseRef = args[++i];
-                case "--head" -> headRef = args[++i];
+                case "--repo" -> repoPath = (++i < args.length) ? args[i] : null;
+                case "--base" -> baseRef = (++i < args.length) ? args[i] : "main";
+                case "--head" -> headRef = (++i < args.length) ? args[i] : "HEAD";
                 case "--help" -> {
                     printUsage();
                     return;
@@ -48,6 +48,9 @@ public class ReviewCliRunner implements CommandLineRunner {
             log.info("Use --repo <path> [--base <ref>] [--head <ref>] to run a review from CLI.");
             return;
         }
+
+        // Normalize Windows backslash paths for JSON serialization
+        repoPath = repoPath.replace('\\', '/');
 
         log.info("");
         log.info("╔══════════════════════════════════════════════╗");

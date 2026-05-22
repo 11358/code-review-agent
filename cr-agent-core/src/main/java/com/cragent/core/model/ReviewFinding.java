@@ -57,6 +57,15 @@ public class ReviewFinding {
     public void setVerified(boolean verified) { this.verified = verified; }
 
     public String uniqueKey() {
-        return file + ":" + lineStart + ":" + lineEnd + ":" + dimension;
+        return file + ":" + lineStart + ":" + lineEnd;
+    }
+
+    /** Merge dimensions from another finding (for dedup). */
+    public void mergeDimensions(ReviewFinding other) {
+        if (this.dimension == null || this.dimension.isBlank()) {
+            this.dimension = other.dimension;
+        } else if (other.dimension != null && !this.dimension.contains(other.dimension)) {
+            this.dimension = this.dimension + "+" + other.dimension;
+        }
     }
 }

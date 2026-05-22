@@ -1,5 +1,6 @@
 package com.cragent.core.graph.nodes;
 
+import com.cragent.core.model.ChangedFile;
 import com.cragent.core.model.ReviewFinding;
 import com.cragent.core.model.ReviewResult;
 import com.cragent.core.model.ReviewSummary;
@@ -21,8 +22,10 @@ public class FormatOutputNode {
         String headRef = (String) state.getOrDefault("head_ref", "");
 
         List<ReviewFinding> findings = (List<ReviewFinding>) state.getOrDefault("findings_result", List.of());
+        List<ChangedFile> changedFiles = (List<ChangedFile>) state.getOrDefault("changed_files", List.of());
 
         ReviewResult result = ReviewResult.empty(repoPath, baseRef, headRef);
+        result.setChangedFiles(changedFiles);
         result.setFindings(findings);
         result.setSummary(ReviewSummary.from(findings));
 

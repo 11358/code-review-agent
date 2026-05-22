@@ -8,7 +8,7 @@ spring:
         enabled: true
         options:
           model: qwen-plus
-          temperature: 0.3
+          temperature: 0.1
     retry:
       max-attempts: 2
       backoff:
@@ -28,8 +28,10 @@ cragent:
   review:
     max-diff-size: 500000
     chunk-size: 200
+    agent-runs: 5
     verification:
       enabled: true
+      runs: 3
       confidence-threshold: 0.6
 
 logging:

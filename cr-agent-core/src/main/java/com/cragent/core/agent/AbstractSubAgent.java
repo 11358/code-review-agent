@@ -65,7 +65,9 @@ public abstract class AbstractSubAgent implements SubAgent {
                 f.setLineStart(getInt(item, "lineStart"));
                 f.setLineEnd(getInt(item, "lineEnd"));
                 f.setSeverity(Severity.fromString(getString(item, "severity")));
-                f.setCategory(ReviewCategory.fromString(getString(item, "category")));
+                String rawCategory = getString(item, "category");
+                f.setCategory(ReviewCategory.fromString(rawCategory));
+                log.debug("Parsed category '{}' -> {}", rawCategory, f.getCategory());
                 f.setDimension(dimension);
                 f.setExplanation(getString(item, "explanation"));
                 f.setSuggestion(getString(item, "suggestion"));
