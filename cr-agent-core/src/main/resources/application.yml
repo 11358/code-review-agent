@@ -4,7 +4,7 @@ spring:
       api-key: ${DASHSCOPE_API_KEY}
       chat:
         options:
-          model: qwen-plus
+          model: qwen-max
           temperature: 0.1
 
 cragent:
@@ -18,4 +18,6 @@ cragent:
     sub-agent-timeout: 60
     verification:
       enabled: false
+      runs: 3
+      timeout-seconds: 60
       confidence-threshold: 0.6

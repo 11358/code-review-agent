@@ -9,8 +9,8 @@ public class ReviewFinding {
     private String dimension;
     private String explanation;
     private String suggestion;
-    private double confidenceScore = 1.0;
-    private boolean verified = true;
+    private double confidenceScore = 0.0;
+    private boolean verified = false;
 
     public ReviewFinding() {}
 

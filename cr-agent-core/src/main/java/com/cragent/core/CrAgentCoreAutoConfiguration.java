@@ -78,14 +78,15 @@ public class CrAgentCoreAutoConfiguration {
         return new PerformanceSubAgent(chatClientBuilder, objectMapper);
     }
 
-    @Bean
+    @Bean(destroyMethod = "shutdown")
     public ReviewStateGraph reviewStateGraph(McpClientManager mcpClient,
                                               SubAgent securitySubAgent,
                                               SubAgent bugSubAgent,
                                               SubAgent performanceSubAgent,
                                               FixGuidedVerificationFilter verificationFilter,
-                                              @Value("${cragent.review.agent-runs:3}") int agentRuns) {
+                                              @Value("${cragent.review.agent-runs:3}") int agentRuns,
+                                              @Value("${cragent.review.sub-agent-timeout:120}") long reviewTimeoutSeconds) {
         return new ReviewStateGraph(mcpClient, securitySubAgent, bugSubAgent,
-                performanceSubAgent, verificationFilter, agentRuns);
+                performanceSubAgent, verificationFilter, agentRuns, reviewTimeoutSeconds);
     }
 }

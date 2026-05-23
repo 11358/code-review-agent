@@ -8,6 +8,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
 import java.util.Map;
 
 @Component
@@ -18,12 +19,18 @@ public class McpClientManager {
     private final RestClient restClient;
 
     public McpClientManager(
-            @Value("${cragent.mcp-server.url:http://localhost:8082}") String serverUrl) {
+            @Value("${cragent.mcp-server.url:http://localhost:8082}") String serverUrl,
+            @Value("${cragent.mcp-server.connect-timeout:10s}") Duration connectTimeout,
+            @Value("${cragent.mcp-server.read-timeout:30s}") Duration readTimeout) {
+        var factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(connectTimeout);
+        factory.setReadTimeout(readTimeout);
         this.restClient = RestClient.builder()
                 .baseUrl(serverUrl)
-                .requestFactory(new SimpleClientHttpRequestFactory())
+                .requestFactory(factory)
                 .build();
-        log.info("Git client initialized: {}", serverUrl);
+        log.info("Git client initialized: {} (connectTimeout={}, readTimeout={})",
+                serverUrl, connectTimeout, readTimeout);
     }
 
     public String callToolAsString(String toolName, Map<String, Object> arguments) {

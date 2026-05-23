@@ -1,6 +1,7 @@
 package com.cragent.core.filter;
 
 import com.cragent.core.model.ReviewFinding;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -10,6 +11,10 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,6 +35,9 @@ public class FixGuidedVerificationFilter {
     private final ChatClient chatClient;
     private final boolean enabled;
     private final int runs;
+    private final long timeoutSeconds;
+    private final ExecutorService verificationExecutor;
+    private final ExecutorService runExecutor;
 
     private static final double DEFAULT_THRESHOLD = 0.5;
     private static final int DEFAULT_RUNS = 3;
@@ -44,11 +52,23 @@ public class FixGuidedVerificationFilter {
     public FixGuidedVerificationFilter(
             @Qualifier("deepseek") ChatClient.Builder chatClientBuilder,
             @Value("${cragent.review.verification.enabled:true}") boolean enabled,
-            @Value("${cragent.review.verification.runs:3}") int runs) {
+            @Value("${cragent.review.verification.runs:3}") int runs,
+            @Value("${cragent.review.verification.timeout-seconds:60}") long timeoutSeconds) {
         this.chatClient = chatClientBuilder.build();
         this.enabled = enabled;
         this.runs = Math.max(1, runs);
-        log.info("Verification filter initialized (runs={})", this.runs);
+        this.timeoutSeconds = timeoutSeconds;
+        this.verificationExecutor = Executors.newFixedThreadPool(8, r -> {
+            Thread t = new Thread(r, "verify-filter");
+            t.setDaemon(true);
+            return t;
+        });
+        this.runExecutor = Executors.newFixedThreadPool(Math.max(8, runs * 4), r -> {
+            Thread t = new Thread(r, "verify-run");
+            t.setDaemon(true);
+            return t;
+        });
+        log.info("Verification filter initialized (runs={}, parallel finding + parallel runs)", this.runs);
     }
 
     /**
@@ -61,42 +81,33 @@ public class FixGuidedVerificationFilter {
             return findings;
         }
 
-        log.info("Verification filter: {} findings (threshold={}, {} runs)", findings.size(), DEFAULT_THRESHOLD, runs);
+        log.info("Verification filter: {} findings (threshold={}, {} runs, {}s timeout, parallel)",
+                findings.size(), DEFAULT_THRESHOLD, runs, timeoutSeconds);
+
+        // Process each finding in parallel with per-finding timeout
+        @SuppressWarnings("unchecked")
+        CompletableFuture<ReviewFinding>[] futures = findings.stream()
+                .map(f -> CompletableFuture.supplyAsync(() -> verifyOneFinding(f, diffContext), verificationExecutor)
+                        .orTimeout(timeoutSeconds, TimeUnit.SECONDS)
+                        .exceptionally(ex -> {
+                            log.debug("Verification timed out for {} @ {} — keeping as-is",
+                                    f.getFile(), f.getLineStart());
+                            return f;
+                        }))
+                .toArray(CompletableFuture[]::new);
+
+        CompletableFuture.allOf(futures)
+                .orTimeout(timeoutSeconds + 30, TimeUnit.SECONDS)
+                .join();
+
         List<ReviewFinding> verified = new ArrayList<>();
         int filtered = 0;
-
-        for (ReviewFinding finding : findings) {
-            if (finding.getSeverity() == null) {
-                verified.add(finding);
-                continue;
-            }
-
-            if ("INFO".equals(finding.getSeverity().name())) {
-                finding.setConfidenceScore(0.8);
-                finding.setVerified(true);
-                verified.add(finding);
-                continue;
-            }
-
-            // Multi-run verification: run N times, average the confidence
-            double totalConfidence = 0.0;
-            int realCount = 0;
-            for (int run = 1; run <= runs; run++) {
-                double c = assessConfidence(finding, diffContext);
-                totalConfidence += c;
-                if (c >= DEFAULT_THRESHOLD) realCount++;
-            }
-            double avgConfidence = totalConfidence / runs;
-
-            finding.setConfidenceScore(avgConfidence);
-            finding.setVerified(avgConfidence >= DEFAULT_THRESHOLD);
-
-            if (avgConfidence >= DEFAULT_THRESHOLD) {
-                verified.add(finding);
+        for (int i = 0; i < futures.length; i++) {
+            ReviewFinding f = futures[i].join();
+            if (f.isVerified()) {
+                verified.add(f);
             } else {
                 filtered++;
-                log.debug("Filtered (avgConf={}, {}/{} runs real): {} @ {}:{}",
-                        avgConfidence, realCount, runs, finding.getCategory(), finding.getFile(), finding.getLineStart());
             }
         }
 
@@ -104,46 +115,102 @@ public class FixGuidedVerificationFilter {
         return verified;
     }
 
-    private double assessConfidence(ReviewFinding finding, String diffContext) {
-        try {
-            String response = chatClient.prompt()
-                    .user(u -> u.text("""
-                            Given a potential code issue found by a code review tool, independently assess whether it is a REAL problem.
-
-                            Issue:
-                            - File: {file}
-                            - Lines: {lineStart}-{lineEnd}
-                            - Severity: {severity}
-                            - Category: {category}
-                            - Problem: {explanation}
-
-                            Relevant code context:
-                            {diff}
-
-                            TASK:
-                            1. If this is a REAL issue, write a specific, compilable code fix.
-                            2. If the existing code is actually fine, say "No fix needed - false positive" and explain.
-                            3. Rate your confidence from 0.0 to 1.0.
-
-                            Output format:
-                            Fix: [specific code fix OR "No fix needed - false positive"]
-                            Confidence: [0.0-1.0]
-                            """)
-                            .param("file", finding.getFile())
-                            .param("lineStart", String.valueOf(finding.getLineStart()))
-                            .param("lineEnd", String.valueOf(finding.getLineEnd()))
-                            .param("severity", finding.getSeverity().name())
-                            .param("category", finding.getCategory().name())
-                            .param("explanation", finding.getExplanation())
-                            .param("diff", truncate(diffContext, 2000)))
-                    .call()
-                    .content();
-
-            return extractConfidence(response);
-        } catch (Exception e) {
-            log.warn("Verification call failed, keeping finding: {}", e.getMessage());
-            return DEFAULT_THRESHOLD;
+    /** Verify a single finding — quick paths + multi-run verification (parallel within). */
+    private ReviewFinding verifyOneFinding(ReviewFinding finding, String diffContext) {
+        if (finding.getSeverity() == null) {
+            return finding;
         }
+
+        // Deterministic finding: already 100% sure, no LLM verification needed
+        if (finding.getConfidenceScore() >= 1.0) {
+            return finding;
+        }
+
+        if ("INFO".equals(finding.getSeverity().name())) {
+            finding.setConfidenceScore(0.8);
+            finding.setVerified(true);
+            return finding;
+        }
+
+        @SuppressWarnings("unchecked")
+        CompletableFuture<Double>[] runFutures = new CompletableFuture[runs];
+        for (int i = 0; i < runs; i++) {
+            runFutures[i] = CompletableFuture.supplyAsync(
+                    () -> assessConfidence(finding, diffContext), runExecutor);
+        }
+
+        CompletableFuture.allOf(runFutures).join();
+
+        double totalConfidence = 0.0;
+        int realCount = 0;
+        for (CompletableFuture<Double> f : runFutures) {
+            double c = f.join();
+            totalConfidence += c;
+            if (c >= DEFAULT_THRESHOLD) realCount++;
+        }
+        double avgConfidence = totalConfidence / runs;
+
+        finding.setConfidenceScore(avgConfidence);
+        finding.setVerified(avgConfidence >= DEFAULT_THRESHOLD);
+
+        if (!finding.isVerified()) {
+            log.debug("Filtered (avgConf={}, {}/{} runs real): {} @ {}:{}",
+                    avgConfidence, realCount, runs, finding.getCategory(), finding.getFile(), finding.getLineStart());
+        }
+        return finding;
+    }
+
+    private double assessConfidence(ReviewFinding finding, String diffContext) {
+        Exception lastException = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                if (attempt > 0) {
+                    Thread.sleep(2000); // backoff before retry
+                }
+                String response = chatClient.prompt()
+                        .user(u -> u.text("""
+                                Given a potential code issue found by a code review tool, independently assess whether it is a REAL problem.
+
+                                Issue:
+                                - File: {file}
+                                - Lines: {lineStart}-{lineEnd}
+                                - Severity: {severity}
+                                - Category: {category}
+                                - Problem: {explanation}
+
+                                Relevant code context:
+                                {diff}
+
+                                TASK:
+                                1. If this is a REAL issue, write a specific, compilable code fix.
+                                2. If the existing code is actually fine, say "No fix needed - false positive" and explain.
+                                3. Rate your confidence from 0.0 to 1.0.
+
+                                Output format:
+                                Fix: [specific code fix OR "No fix needed - false positive"]
+                                Confidence: [0.0-1.0]
+                                """)
+                                .param("file", finding.getFile())
+                                .param("lineStart", String.valueOf(finding.getLineStart()))
+                                .param("lineEnd", String.valueOf(finding.getLineEnd()))
+                                .param("severity", finding.getSeverity().name())
+                                .param("category", finding.getCategory().name())
+                                .param("explanation", finding.getExplanation())
+                                .param("diff", truncate(diffContext, 2000)))
+                        .call()
+                        .content();
+
+                return extractConfidence(response);
+            } catch (Exception e) {
+                lastException = e;
+                if (attempt < 1) {
+                    log.debug("Verification call failed (attempt {}), retrying: {}", attempt + 1, e.getMessage());
+                }
+            }
+        }
+        log.warn("Verification call failed after 2 attempts, keeping finding (last: {})",
+                lastException != null ? lastException.getMessage() : "unknown");
+        return DEFAULT_THRESHOLD;
     }
 
     private double extractConfidence(String response) {
@@ -177,6 +244,24 @@ public class FixGuidedVerificationFilter {
         if (hasSpecificFix) return 0.8;
         if (lower.contains("could") || lower.contains("might") || lower.contains("possibly")) return 0.35;
         return 0.5;
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        shutdownExecutor(verificationExecutor);
+        shutdownExecutor(runExecutor);
+    }
+
+    private void shutdownExecutor(ExecutorService executor) {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     private String truncate(String s, int maxLen) {

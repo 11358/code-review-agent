@@ -29,9 +29,11 @@ cragent:
     max-diff-size: 500000
     chunk-size: 200
     agent-runs: 5
+    sub-agent-timeout: 120
     verification:
       enabled: true
       runs: 3
+      timeout-seconds: 60
       confidence-threshold: 0.6
 
 logging:

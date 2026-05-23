@@ -28,6 +28,12 @@ Thumbs.db
 
 # Project docs (personal guide, not for public repo)
 PROJECT-GUIDE.md
+CHANGELOG.md
+OPTIMIZATION-PLAN.md
+
+# Temporary / local
+context.txt
+start.sh
 
 # IDE
 .vscode/

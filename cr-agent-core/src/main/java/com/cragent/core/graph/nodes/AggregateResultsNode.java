@@ -52,11 +52,27 @@ public class AggregateResultsNode {
                 .thenComparing(ReviewFinding::getFile)
                 .thenComparingInt(ReviewFinding::getLineStart));
 
-        log.info("Aggregated findings: {} raw -> {} deduped -> {} sorted",
-                allFindings.size(), deduped.size(), sorted.size());
+        // Cross-source merge: same file + same category within 5 lines → one finding
+        List<ReviewFinding> merged = new ArrayList<>();
+        for (ReviewFinding f : sorted) {
+            if (!merged.isEmpty()) {
+                ReviewFinding prev = merged.get(merged.size() - 1);
+                if (prev.getFile().equals(f.getFile())
+                        && prev.getCategory() == f.getCategory()
+                        && f.getLineStart() - prev.getLineEnd() <= 5) {
+                    prev.setLineEnd(Math.max(prev.getLineEnd(), f.getLineEnd()));
+                    prev.mergeDimensions(f);
+                    continue;
+                }
+            }
+            merged.add(f);
+        }
+
+        log.info("Aggregated findings: {} raw -> {} deduped -> {} merged -> {} final",
+                allFindings.size(), deduped.size(), sorted.size(), merged.size());
 
         Map<String, Object> result = new HashMap<>();
-        result.put("all_findings", sorted);
+        result.put("all_findings", merged);
         result.put("agent_decisions", "aggregate: " + allFindings.size() +
                 " raw -> " + sorted.size() + " deduped findings");
         return result;
