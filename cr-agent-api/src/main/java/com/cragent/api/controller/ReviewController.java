@@ -22,13 +22,14 @@ public class ReviewController {
 
     private final ReviewOrchestrationService service;
 
+    /** 构造器注入 ReviewOrchestrationService */
     public ReviewController(ReviewOrchestrationService service) {
         this.service = service;
     }
 
     @PostMapping("/review")
     public Mono<ReviewResponse> review(@Valid @RequestBody ReviewRequest request) {
-        log.info("REST review request: repo={}, {} -> {}",
+        log.info("收到 REST 审查请求: repo={}, {} -> {}",
                 request.getRepoPath(), request.getBaseRef(), request.getHeadRef());
 
         return Mono.fromCallable(() ->
@@ -39,7 +40,7 @@ public class ReviewController {
 
     @PostMapping(value = "/review/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<Map<String, Object>> reviewStream(@Valid @RequestBody ReviewRequest request) {
-        log.info("SSE review request: repo={}, {} -> {}",
+        log.info("SSE 审查请求: repo={}, {} -> {}",
                 request.getRepoPath(), request.getBaseRef(), request.getHeadRef());
 
         return service.reviewStream(

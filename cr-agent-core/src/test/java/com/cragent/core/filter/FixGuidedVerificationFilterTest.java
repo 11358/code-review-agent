@@ -13,8 +13,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for the FixGuidedVerificationFilter confidence scoring logic.
- * These tests validate the heuristic-based confidence extraction without requiring LLM calls.
+ * FixGuidedVerificationFilter 置信度评分逻辑测试。
+ * 这些测试验证基于启发式的置信度提取，无需实际 LLM 调用。
  */
 class FixGuidedVerificationFilterTest {
 
@@ -34,8 +34,8 @@ class FixGuidedVerificationFilterTest {
     @Test
     @DisplayName("Confidence extraction from response containing specific fix")
     void testExtractConfidenceWithSpecificFix() {
-        // The extractConfidence method is private; testing through filter behavior
-        // would require LLM, so we verify the finding model instead
+        // extractConfidence 方法是 private 的，通过 finding model 验证数据完整性
+        // 需要 LLM 调用时可手动启用完整测试
         ReviewFinding f = createFinding(Severity.CRITICAL, ReviewCategory.SQL_INJECTION,
                 "SQL query uses string concatenation with user input");
         assertNotNull(f);

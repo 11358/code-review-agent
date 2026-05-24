@@ -11,19 +11,22 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Pre-LLM deterministic scanner. Regex-based rules detect known patterns
- * with 100% confidence, so the LLM agents don't waste tokens on what
- * a simple pattern match can find.
+ * LLM 之前的确定性扫描器。用正则匹配已知 Bug 模式，置信度 100%，
+ * 让 LLM Agent 不再浪费 token 去发现"非黑即白"的问题。
  *
- * Findings from this node skip DeepSeek verification (already verified=true).
+ * 本节点的发现直接跳过 DeepSeek 验证（verified=true）。
  */
 public class DeterministicScanNode {
 
     private static final Logger log = LoggerFactory.getLogger(DeterministicScanNode.class);
 
+    /**
+     * 9 条正则规则，覆盖三个维度中"非黑即白"的模式。
+     * 每条规则包含：正则表达式、分类、维度、严重度、解释模板、修复建议。
+     */
     private static final List<Rule> RULES = List.of(
 
-        // ── SECURITY ──────────────────────────────────────────
+        // ── 安全 ──────────────────────────────────────────────
 
         new Rule(
             Pattern.compile(
@@ -59,7 +62,7 @@ public class DeterministicScanNode {
             "Avoid shell execution; if unavoidable, use ProcessBuilder with argument list (no shell)"
         ),
 
-        // ── BUGS ──────────────────────────────────────────────
+        // ── Bug ───────────────────────────────────────────────
 
         new Rule(
             Pattern.compile("catch\\s*\\([^)]*\\)\\s*\\{\\s*\\}"),
@@ -84,7 +87,7 @@ public class DeterministicScanNode {
             "Replace with log.error(\"msg\", e) using SLF4J or equivalent"
         ),
 
-        // ── PERFORMANCE ───────────────────────────────────────
+        // ── 性能 ──────────────────────────────────────────────
 
         new Rule(
             Pattern.compile("String\\s+\\w+\\s*=\\s*\"\";.*\\+="),
@@ -101,14 +104,20 @@ public class DeterministicScanNode {
         )
     );
 
-    // Hunk header pattern: @@ -oldStart,oldCount +newStart,newCount @@
+    // Hunk 头正则: @@ -旧起,旧数 +新起,新数 @@
     private static final Pattern HUNK_PATTERN = Pattern.compile(
             "^@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@");
 
-    // File header: diff --git a/path b/path
+    // 文件头: diff --git a/path b/path
     private static final Pattern FILE_PATTERN = Pattern.compile(
             "^diff --git a/(.+) b/(.+)$");
 
+    /**
+     * 流水线节点入口。从 state 取 raw_diff，扫描后输出 deterministic_findings。
+     *
+     * @param state 包含 "raw_diff" key 的共享状态
+     * @return 包含 "deterministic_findings" 的新 Map
+     */
     public Map<String, Object> execute(Map<String, Object> state) {
         String rawDiff = (String) state.getOrDefault("raw_diff", "");
         if (rawDiff == null || rawDiff.isBlank()) {
@@ -117,7 +126,7 @@ public class DeterministicScanNode {
 
         List<ReviewFinding> findings = scan(rawDiff);
 
-        log.info("Deterministic scan: {} findings (confidence=1.0, pre-verified)", findings.size());
+        log.info("确定性扫描: {} 条发现（置信度=1.0，已验证）", findings.size());
         for (ReviewFinding f : findings) {
             log.debug("  [{}] {}:{} — {}",
                     f.getDimension(), f.getFile(), f.getLineStart(), f.getCategory());
@@ -128,27 +137,34 @@ public class DeterministicScanNode {
         return result;
     }
 
+    /**
+     * 逐行扫描 diff 文本，用 9 条正则匹配已知 Bug 模式。
+     * 扫描流程：跟踪文件路径和行号 → 只扫描新增行 → 匹配规则 → 排序 → 相邻合并 → 设置信度 1.0
+     *
+     * @param diff 完整的 unified diff 文本
+     * @return 合并后的 ReviewFinding 列表（全部 confidence=1.0, verified=true）
+     */
     private List<ReviewFinding> scan(String diff) {
         List<ReviewFinding> findings = new ArrayList<>();
         String currentFile = null;
         int currentLine = 0;
 
         for (String line : diff.split("\n")) {
-            // Track file
+            // 跟踪当前文件
             Matcher fm = FILE_PATTERN.matcher(line);
             if (fm.find()) {
                 currentFile = fm.group(2);
                 continue;
             }
 
-            // Track hunk line number
+            // 跟踪 hunk 行号
             Matcher hm = HUNK_PATTERN.matcher(line);
             if (hm.find()) {
                 currentLine = Integer.parseInt(hm.group(2));
                 continue;
             }
 
-            // Only scan added lines
+            // 只扫描新增行
             if (!line.startsWith("+") || line.startsWith("+++")) {
                 if (!line.startsWith("-")) currentLine++;
                 continue;
@@ -174,13 +190,13 @@ public class DeterministicScanNode {
             currentLine++;
         }
 
-        // Sort by file → category → line
+        // 排序：文件 → 类别 → 行号
         findings.sort(Comparator
                 .comparing(ReviewFinding::getFile)
                 .thenComparing(ReviewFinding::getCategory)
                 .thenComparingInt(ReviewFinding::getLineStart));
 
-        // Merge adjacent same-category findings within 3 lines
+        // 相邻合并：同类别 + 行距 ≤3 → 合并为一条
         List<ReviewFinding> merged = new ArrayList<>();
         for (ReviewFinding f : findings) {
             if (!merged.isEmpty()) {
@@ -188,7 +204,7 @@ public class DeterministicScanNode {
                 if (prev.getFile().equals(f.getFile())
                         && prev.getCategory() == f.getCategory()
                         && f.getLineStart() - prev.getLineEnd() <= 3) {
-                    // Extend previous finding to cover this one too
+                    // 扩展前一条的 lineEnd 以覆盖当前
                     prev.setLineEnd(Math.max(prev.getLineEnd(), f.getLineEnd()));
                     continue;
                 }
@@ -203,12 +219,22 @@ public class DeterministicScanNode {
         return merged;
     }
 
+    /** 截断过长代码片段，防止 finding 的 explanation 字段过长 */
     private String truncate(String s, int max) {
         return s.length() <= max ? s : s.substring(0, max - 3) + "...";
     }
 
-    // ── Rule definition ──────────────────────────────────────
+    // ── 规则定义 ────────────────────────────────────────────
 
+    /**
+     * 单条扫描规则。
+     * @param pattern     正则表达式
+     * @param category    命中的 Bug 类别
+     * @param dimension   所属维度（SECURITY/BUGS/PERFORMANCE）
+     * @param severity    严重度
+     * @param explanation 解释模板（%s 会被替换为匹配到的代码片段）
+     * @param suggestion  修复建议
+     */
     private record Rule(
             Pattern pattern,
             ReviewCategory category,

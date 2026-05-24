@@ -60,7 +60,7 @@ public class ReviewFinding {
         return file + ":" + lineStart + ":" + lineEnd;
     }
 
-    /** Merge dimensions from another finding (for dedup). */
+    /** 合并来自另一个 finding 的维度名（去重用） */
     public void mergeDimensions(ReviewFinding other) {
         if (this.dimension == null || this.dimension.isBlank()) {
             this.dimension = other.dimension;

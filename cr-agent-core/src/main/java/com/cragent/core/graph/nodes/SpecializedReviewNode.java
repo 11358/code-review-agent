@@ -19,6 +19,11 @@ public class SpecializedReviewNode {
         this(subAgent, stateKey, 3);
     }
 
+    /**
+     * @param subAgent  注入的审查 Agent（Security/Bug/Performance）
+     * @param stateKey  输出到 state Map 时用的 key（如 "security_findings"）
+     * @param runs      多轮并集轮数（默认 3）
+     */
     public SpecializedReviewNode(SubAgent subAgent, String stateKey, int runs) {
         this.subAgent = subAgent;
         this.stateKey = stateKey;
@@ -33,6 +38,13 @@ public class SpecializedReviewNode {
         return subAgent.getDimensionName();
     }
 
+    /**
+     * 通用审查节点执行逻辑：过滤 chunk → 截断 → 多轮并集 → 返回结果。
+     *
+     * 每个 Agent 只审查 relevantDimensions 中包含自己维度的 chunk，
+     * 然后跑 N 轮取 UNION（有一轮报了就要），最大化召回。
+     * 误报留给后续 DeepSeek 交叉验证过滤。
+     */
     @SuppressWarnings("unchecked")
     public Map<String, Object> execute(Map<String, Object> state) {
         String rawDiff = (String) state.getOrDefault("raw_diff", "");
@@ -52,17 +64,17 @@ public class SpecializedReviewNode {
 
         String diffToReview = !relevantDiff.isEmpty() ? relevantDiff.toString() : rawDiff;
         if (diffToReview == null || diffToReview.isBlank()) {
-            log.info("No diff content for dimension: {}", dimension);
+            log.info("维度 {} 无相关 diff 内容", dimension);
             return Map.of(stateKey, List.of());
         }
 
         if (diffToReview.length() > 500_000) {
-            diffToReview = diffToReview.substring(0, 500_000) + "\n... [diff truncated] ...";
+            diffToReview = diffToReview.substring(0, 500_000) + "\n... [diff 已截断] ...";
         }
 
-        // Multi-run UNION: run N times, keep ALL unique findings (maximize recall)
-        // False positives get cleaned up later by DeepSeek cross-model verification
-        log.info("Starting {} review ({} chars, {} runs — union mode)...", dimension, diffToReview.length(), runs);
+        // 多轮并集：跑 N 轮，保留所有唯一 finding（最大化召回）
+        // 误报由后续 DeepSeek 交叉验证过滤
+        log.info("开始 {} 审查 ({} 字符, {} 轮 — 并集模式)...", dimension, diffToReview.length(), runs);
 
         Map<String, ReviewFinding> union = new LinkedHashMap<>();
         Map<String, Integer> occurrenceCount = new HashMap<>();
@@ -71,12 +83,12 @@ public class SpecializedReviewNode {
         for (int run = 1; run <= runs; run++) {
             List<ReviewFinding> findings = subAgent.review(diffToReview, List.of());
             totalRaw += findings.size();
-            log.info("{} review run {}/{}: {} findings", dimension, run, runs, findings.size());
+            log.info("{} 审查 第{}/{}轮: {} 条发现", dimension, run, runs, findings.size());
 
             for (ReviewFinding f : findings) {
                 String key = f.uniqueKey();
                 occurrenceCount.merge(key, 1, Integer::sum);
-                // Keep the most detailed version
+                // 保留 explanation 最详细的版本
                 union.merge(key, f, (existing, incoming) ->
                         incoming.getExplanation().length() > existing.getExplanation().length() ? incoming : existing);
             }
@@ -84,10 +96,10 @@ public class SpecializedReviewNode {
 
         List<ReviewFinding> result = new ArrayList<>(union.values());
 
-        log.info("{} review union: {} raw across {} runs → {} unique findings (votes: {})",
+        log.info("{} 审查并集: {} 条原始 × {} 轮 → {} 条唯一发现 (投票: {})",
                 dimension, totalRaw, runs, result.size(), occurrenceCount);
 
         return Map.of(stateKey, result,
-                "agent_decisions", dimension.toLowerCase() + "_review: " + result.size() + " unique findings (" + runs + " runs, union)");
+                "agent_decisions", dimension.toLowerCase() + "_review: " + result.size() + " 条唯一发现 (" + runs + " 轮并集)");
     }
 }

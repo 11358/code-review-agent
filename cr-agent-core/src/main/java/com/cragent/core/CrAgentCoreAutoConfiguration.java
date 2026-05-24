@@ -28,6 +28,7 @@ public class CrAgentCoreAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(CrAgentCoreAutoConfiguration.class);
 
+    /** 千问 ChatClient.Builder：用于三个审查 Agent */
     @Bean
     @ConditionalOnMissingBean
     public ChatClient.Builder chatClientBuilder(ChatModel chatModel) {
@@ -35,17 +36,18 @@ public class CrAgentCoreAutoConfiguration {
     }
 
     /**
-     * DeepSeek ChatClient for cross-model verification.
-     * Falls back to Qwen if DEEPSEEK_API_KEY is not set.
+     * 跨模型验证用的 DeepSeek ChatClient。
+     * 未设置 DEEPSEEK_API_KEY 时自动回退到千问。
      */
+    /** DeepSeek ChatClient.Builder：用于交叉验证。无 API Key 时回退到千问。 */
     @Bean
     @Qualifier("deepseek")
     public ChatClient.Builder deepseekChatClientBuilder(
             @Value("${DEEPSEEK_API_KEY:}") String apiKey,
             ChatClient.Builder defaultBuilder) {
         if (apiKey.isBlank()) {
-            log.warn("DEEPSEEK_API_KEY not set — verification will use Qwen (same-model echo chamber). "
-                    + "Set DEEPSEEK_API_KEY for true cross-model verification.");
+            log.warn("未设置 DEEPSEEK_API_KEY — 验证将回退到千问（同模型回音室风险）。"
+                    + "设置 DEEPSEEK_API_KEY 以启用真正的跨模型交叉验证。");
             return defaultBuilder;
         }
         var openAiApi = OpenAiApi.builder()
@@ -59,25 +61,29 @@ public class CrAgentCoreAutoConfiguration {
                         .temperature(0.1)
                         .build())
                 .build();
-        log.info("DeepSeek cross-model verification enabled (model: deepseek-chat)");
+        log.info("DeepSeek 跨模型交叉验证已启用 (模型: deepseek-chat)");
         return ChatClient.builder(chatModel);
     }
 
+    /** SecuritySubAgent：OWASP 安全审查（注意：未继承 AbstractSubAgent，有重复代码） */
     @Bean
     public SubAgent securitySubAgent(ChatClient.Builder chatClientBuilder, ObjectMapper objectMapper) {
         return new SecuritySubAgent(chatClientBuilder, objectMapper);
     }
 
+    /** BugSubAgent：逻辑 Bug 审查（继承 AbstractSubAgent，仅 11 行业务代码） */
     @Bean
     public SubAgent bugSubAgent(ChatClient.Builder chatClientBuilder, ObjectMapper objectMapper) {
         return new BugSubAgent(chatClientBuilder, objectMapper);
     }
 
+    /** PerformanceSubAgent：性能反模式审查（继承 AbstractSubAgent，仅 11 行业务代码） */
     @Bean
     public SubAgent performanceSubAgent(ChatClient.Builder chatClientBuilder, ObjectMapper objectMapper) {
         return new PerformanceSubAgent(chatClientBuilder, objectMapper);
     }
 
+    /** ★ 核心流水线 Bean。destroyMethod="shutdown" 确保应用关闭时线程池被释放。 */
     @Bean(destroyMethod = "shutdown")
     public ReviewStateGraph reviewStateGraph(McpClientManager mcpClient,
                                               SubAgent securitySubAgent,

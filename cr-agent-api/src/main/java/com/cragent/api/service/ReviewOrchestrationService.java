@@ -23,24 +23,23 @@ public class ReviewOrchestrationService {
 
     public ReviewResult review(String repoPath, String baseRef, String headRef) {
         repoPath = repoPath.replace('\\', '/');
-        log.info("Starting review: repo={}, {} -> {}", repoPath, baseRef, headRef);
+        log.info("开始审查: repo={}, {} -> {}", repoPath, baseRef, headRef);
 
         Map<String, Object> result = stateGraph.execute(repoPath, baseRef, headRef);
 
         ReviewResult reviewResult = (ReviewResult) result.get("review_result");
         if (reviewResult == null) {
-            log.warn("No review result produced");
+            log.warn("未生成审查结果");
             return ReviewResult.empty(repoPath, baseRef, headRef);
         }
 
-        log.info("Review complete: {} findings", reviewResult.getFindings().size());
+        log.info("审查完成: {} 条发现", reviewResult.getFindings().size());
         return reviewResult;
     }
 
     /**
-     * Streaming version that emits progress events via SSE.
-     * Since the current StateGraph is synchronous, we wrap it in a Flux
-     * with progress events emitted at key stages.
+     * SSE 流式版本，推送审查进度事件。
+     * 当前 StateGraph 为同步调用，在 Flux 中手动发送开始/完成事件。
      */
     public Flux<Map<String, Object>> reviewStream(String repoPath, String baseRef, String headRef) {
         return Flux.create(sink -> {
@@ -58,7 +57,7 @@ public class ReviewOrchestrationService {
                 sink.next(Map.of(
                         "event", "node.start",
                         "node", "fetch_diff",
-                        "message", "Fetching git diff..."
+                        "message", "正在拉取 Git Diff..."
                 ));
 
                 ReviewResult result = review(repoPath, baseRef, headRef);
@@ -66,7 +65,7 @@ public class ReviewOrchestrationService {
                 sink.next(Map.of(
                         "event", "node.complete",
                         "node", "review",
-                        "message", "Review complete",
+                        "message", "审查完成",
                         "findings", result.getFindings().size()
                 ));
 
@@ -78,7 +77,7 @@ public class ReviewOrchestrationService {
 
                 sink.complete();
             } catch (Exception e) {
-                log.error("Streaming review failed", e);
+                log.error("流式审查失败", e);
                 sink.next(Map.of(
                         "event", "review.error",
                         "error", e.getMessage()

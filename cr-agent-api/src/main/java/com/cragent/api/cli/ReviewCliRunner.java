@@ -25,6 +25,11 @@ public class ReviewCliRunner implements CommandLineRunner {
         this.objectMapper = objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
     }
 
+    /**
+     * Spring Boot 启动后自动回调入口。
+     * 有 --repo → CLI 模式（审查 → 打印结果 → 退出）
+     * 无 --repo → Server 模式（返回，容器持续运行等待 HTTP 请求）
+     */
     @Override
     public void run(String... args) throws Exception {
         String repoPath = null;
@@ -44,12 +49,12 @@ public class ReviewCliRunner implements CommandLineRunner {
         }
 
         if (repoPath == null) {
-            log.info("No --repo argument provided. Starting in server mode.");
-            log.info("Use --repo <path> [--base <ref>] [--head <ref>] to run a review from CLI.");
+            log.info("未提供 --repo 参数，以 Server 模式启动。");
+            log.info("使用 --repo <path> [--base <ref>] [--head <ref>] 从命令行运行审查。");
             return;
         }
 
-        // Normalize Windows backslash paths for JSON serialization
+        // 规范化 Windows 反斜杠路径
         repoPath = repoPath.replace('\\', '/');
 
         log.info("");
@@ -57,51 +62,51 @@ public class ReviewCliRunner implements CommandLineRunner {
         log.info("║       Code Review AI Agent - Phase 1         ║");
         log.info("╚══════════════════════════════════════════════╝");
         log.info("");
-        log.info("Repository: {}", repoPath);
-        log.info("Base ref:   {}", baseRef);
-        log.info("Head ref:   {}", headRef);
+        log.info("仓库: {}", repoPath);
+        log.info("基准 ref:   {}", baseRef);
+        log.info("目标 ref:   {}", headRef);
         log.info("");
 
         ReviewResult result = service.review(repoPath, baseRef, headRef);
 
         log.info("");
-        log.info("══════════════════ Review Report ═══════════════");
-        log.info("Files changed: {}", result.getChangedFiles().size());
-        log.info("Total findings: {}", result.getSummary().getTotalFindings());
+        log.info("══════════════════ 审查报告 ═══════════════");
+        log.info("变更文件: {}", result.getChangedFiles().size());
+        log.info("发现总数: {}", result.getSummary().getTotalFindings());
         log.info("  CRITICAL: {}", result.getSummary().getSeverityCounts());
-        log.info("  Duration: {}ms", result.getDurationMs());
+        log.info("  耗时: {}ms", result.getDurationMs());
         log.info("");
 
         List<ReviewFinding> findings = result.getFindings();
         if (findings.isEmpty()) {
-            log.info("No issues found. Code looks good!");
+            log.info("未发现任何问题，代码质量良好！");
         } else {
             for (int i = 0; i < findings.size(); i++) {
                 ReviewFinding f = findings.get(i);
-                log.info("--- Finding #{} ---", i + 1);
-                log.info("  File:     {}:{} - {}", f.getFile(), f.getLineStart(), f.getLineEnd());
-                log.info("  Severity: {}", f.getSeverity());
-                log.info("  Category: {}", f.getCategory());
-                log.info("  Dimension: {}", f.getDimension());
-                log.info("  Why:      {}", f.getExplanation());
-                log.info("  Fix:      {}", f.getSuggestion());
+                log.info("--- 第 {} 条 ---", i + 1);
+                log.info("  文件:     {}:{} - {}", f.getFile(), f.getLineStart(), f.getLineEnd());
+                log.info("  严重度: {}", f.getSeverity());
+                log.info("  类别: {}", f.getCategory());
+                log.info("  维度: {}", f.getDimension());
+                log.info("  原因:      {}", f.getExplanation());
+                log.info("  修复:      {}", f.getSuggestion());
                 log.info("");
             }
         }
 
-        // Also output as JSON for scripting use
+        // 同时输出 JSON 供脚本使用
         System.out.println(objectMapper.writeValueAsString(result));
     }
 
     private void printUsage() {
         System.out.println("""
-                Code Review AI Agent - Usage:
-                  --repo <path>    Path to git repository (required for CLI mode)
-                  --base <ref>     Base reference (default: main)
-                  --head <ref>     Head reference (default: HEAD)
-                  --help           Show this help
+                Code Review AI Agent - 用法:
+                  --repo <path>    Git 仓库路径（CLI 模式必填）
+                  --base <ref>     基准 ref（默认: main）
+                  --head <ref>     目标 ref（默认: HEAD）
+                  --help           显示帮助
 
-                Without --repo, starts in web server mode.
+                不传 --repo 时以 Web Server 模式启动。
                 """);
     }
 }

@@ -35,13 +35,13 @@ public enum ReviewCategory {
         try {
             return valueOf(normalized);
         } catch (IllegalArgumentException e) {
-            // Fallback: keyword matching for common LLM output variations
+            // 兜底：LLM 输出格式不标准时的关键词匹配
             return fuzzyMatch(normalized);
         }
     }
 
     private static ReviewCategory fuzzyMatch(String normalized) {
-        // Security
+        // 安全
         if (normalized.contains("SQL")) return SQL_INJECTION;
         if (normalized.contains("XSS") || normalized.contains("CROSS")) return XSS;
         if (normalized.contains("PATH") || normalized.contains("TRAVERSAL") || normalized.contains("DIRECTORY")) return PATH_TRAVERSAL;
@@ -51,7 +51,7 @@ public enum ReviewCategory {
         if (normalized.contains("DESERIAL") || normalized.contains("SERIAL")) return INSECURE_DESERIALIZATION;
         if (normalized.contains("AUTH") || normalized.contains("PERMISSION") || normalized.contains("BYPASS")) return AUTH_BYPASS;
 
-        // Bugs
+        // Bug
         if (normalized.contains("NULL") || normalized.contains("NPE") || normalized.contains("POINTER")) return NULL_POINTER;
         if (normalized.contains("RACE") || normalized.contains("CONCURRENCY") || normalized.contains("CONCURRENT")) return RACE_CONDITION;
         if (normalized.contains("RESOURCE") || normalized.contains("LEAK") || normalized.contains("CLOSE") || normalized.contains("STREAM")) return RESOURCE_LEAK;
@@ -60,7 +60,7 @@ public enum ReviewCategory {
         if (normalized.contains("LOGIC") || normalized.contains("CONDITION")) return LOGIC_ERROR;
         if (normalized.contains("OFF_BY_ONE") || normalized.contains("BOUNDARY") || normalized.contains("INDEX")) return OFF_BY_ONE;
 
-        // Performance
+        // 性能
         if (normalized.contains("N_PLUS") || normalized.contains("N+1") || normalized.contains("QUERY_IN_LOOP")) return N_PLUS_ONE_QUERY;
         if (normalized.contains("ALLOCATION") || normalized.contains("EXCESSIVE") || normalized.contains("BOXING")) return EXCESSIVE_ALLOCATION;
         if (normalized.contains("DATA_STRUCTURE") || normalized.contains("COLLECTION") || normalized.contains("INEFFICIENT")) return INEFFICIENT_DATA_STRUCTURE;

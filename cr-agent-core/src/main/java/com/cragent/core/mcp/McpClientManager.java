@@ -18,6 +18,12 @@ public class McpClientManager {
 
     private final RestClient restClient;
 
+    /**
+     * 初始化 Git 工具服务客户端（RestClient，非 MCP 协议）。
+     * @param serverUrl      Git 工具服务地址（默认 http://localhost:8082）
+     * @param connectTimeout 连接超时
+     * @param readTimeout    读取超时（diff 可能较大）
+     */
     public McpClientManager(
             @Value("${cragent.mcp-server.url:http://localhost:8082}") String serverUrl,
             @Value("${cragent.mcp-server.connect-timeout:10s}") Duration connectTimeout,
@@ -29,10 +35,16 @@ public class McpClientManager {
                 .baseUrl(serverUrl)
                 .requestFactory(factory)
                 .build();
-        log.info("Git client initialized: {} (connectTimeout={}, readTimeout={})",
+        log.info("Git 客户端初始化完成: {} (连接超时={}, 读取超时={})",
                 serverUrl, connectTimeout, readTimeout);
     }
 
+    /**
+     * MCP 语义的工具调用接口。当前用 REST 实现，后续升级 MCP 只需改此方法内部实现。
+     * @param toolName  工具名（get_git_diff / list_changed_files / read_file_at_ref / get_diff_stat）
+     * @param arguments 参数 Map
+     * @return 工具返回的字符串结果
+     */
     public String callToolAsString(String toolName, Map<String, Object> arguments) {
         return switch (toolName) {
             case "get_git_diff" -> restClient.post()
@@ -59,7 +71,7 @@ public class McpClientManager {
                     .body(arguments)
                     .retrieve()
                     .body(String.class);
-            default -> throw new IllegalArgumentException("Unknown tool: " + toolName);
+            default -> throw new IllegalArgumentException("未知工具: " + toolName);
         };
     }
 }

@@ -13,41 +13,65 @@ public class ParseDiffNode {
 
     private static final Logger log = LoggerFactory.getLogger(ParseDiffNode.class);
 
+    // 匹配 diff 文件头: "diff --git a/旧路径 b/新路径"
     private static final Pattern DIFF_FILE_PATTERN = Pattern.compile(
             "^diff --git a/(.+) b/(.+)$", Pattern.MULTILINE);
+    // 匹配 hunk 头: "@@ -旧起始,旧行数 +新起始,新行数 @@"（目前未使用，保留备用）
     private static final Pattern ADD_DEL_PATTERN = Pattern.compile(
             "^@@ -(\\d+),?(\\d*) \\+(\\d+),?(\\d*) @@");
 
+    /**
+     * 解析 raw_diff 为结构化数据。
+     * 产出两个 key：
+     *   - "changed_files": List<ChangedFile>（文件路径 + 增删行数）
+     *   - "diff_chunks": List<DiffChunk>（每个文件一段，含 relevantDimensions 路由标记）
+     *
+     * relevantDimensions 路由规则根据文件路径后缀和关键词判断：
+     *   Controller/Service/Repository/DAO → 三个维度全审
+     *   Mapper XML → Security + Performance
+     *   配置文件 → Security
+     *   其他 → 至少 BUGS
+     */
     public Map<String, Object> execute(Map<String, Object> state) {
         String rawDiff = (String) state.getOrDefault("raw_diff", "");
 
         if (rawDiff == null || rawDiff.isBlank()) {
-            log.warn("No diff content to parse");
+            log.warn("Diff 内容为空，无需解析");
             return Map.of("changed_files", List.of(), "diff_chunks", List.of());
         }
 
         List<ChangedFile> changedFiles = parseChangedFiles(rawDiff);
         List<DiffChunk> chunks = chunkByFile(rawDiff, changedFiles);
 
-        log.info("Parsed diff: {} files changed, {} review chunks", changedFiles.size(), chunks.size());
+        log.info("Diff 解析完成: {} 个文件变更, {} 个审查 chunk", changedFiles.size(), chunks.size());
 
         Map<String, Object> result = new HashMap<>();
         result.put("changed_files", changedFiles);
         result.put("diff_chunks", chunks);
-        result.put("agent_decisions", "parse_diff: " + changedFiles.size() + " files, " +
+        result.put("agent_decisions", "parse_diff: " + changedFiles.size() + " 文件, " +
                 chunks.size() + " chunks");
         return result;
     }
 
+    /**
+     * 从 unified diff 文本中提取变更文件列表，统计每个文件的增删行数。
+     *
+     * 逻辑：用正则匹配所有 "diff --git a/xxx b/xxx" 头，
+     *       截取相邻两个文件头之间的文本作为单文件 diff，
+     *       统计其中以 + 开头（新增）和 - 开头（删除）的行数。
+     *
+     * @param diff 完整 unified diff 文本
+     * @return 变更文件列表（文件路径 + 增删行数 + 变更类型）
+     */
     private List<ChangedFile> parseChangedFiles(String diff) {
         List<ChangedFile> files = new ArrayList<>();
         Matcher fileMatcher = DIFF_FILE_PATTERN.matcher(diff);
         while (fileMatcher.find()) {
             ChangedFile cf = new ChangedFile();
-            cf.setFilePath(fileMatcher.group(2)); // new path
+            cf.setFilePath(fileMatcher.group(2)); // 新文件路径
             cf.setChangeType(ChangeType.MODIFIED);
 
-            // Count additions/deletions for this file
+            // 统计该文件的增删行数
             int fileStart = fileMatcher.start();
             int nextFileStart = diff.indexOf("diff --git", fileStart + 1);
             if (nextFileStart == -1) nextFileStart = diff.length();
@@ -65,6 +89,16 @@ public class ParseDiffNode {
         return files;
     }
 
+    /**
+     * 按文件边界切割 diff 文本，每个文件一段，包装为 DiffChunk 并标注审查维度。
+     *
+     * 切割方式：用正则前瞻 "(?=^diff --git )" 按文件头边界分裂。
+     * 每个 chunk 调用 determineDimensions() 根据文件路径决定该文件需要哪些维度审查。
+     *
+     * @param diff         完整 unified diff 文本
+     * @param changedFiles 前面 parseChangedFiles 产出的文件列表（仅用于日志，未直接使用）
+     * @return DiffChunk 列表（每个元素 = 文件路径 + diff 片段 + 审查维度集合）
+     */
     private List<DiffChunk> chunkByFile(String diff, List<ChangedFile> changedFiles) {
         List<DiffChunk> chunks = new ArrayList<>();
         String[] fileSections = diff.split("(?=^diff --git )");
@@ -78,20 +112,32 @@ public class ParseDiffNode {
             chunk.setFilePath(filePath);
             chunk.setContent(section);
 
-            // Determine relevant dimensions based on file type
+            // 根据文件路径决定需要哪些维度审查
             chunk.setRelevantDimensions(determineDimensions(filePath));
             chunks.add(chunk);
         }
         return chunks;
     }
 
+    /**
+     * 根据文件路径后缀和关键词，判断该文件需要哪些审查维度。
+     *
+     * 路由规则：
+     *   Controller/Service/Repository/DAO/Filter/Security/Auth → SECURITY + BUGS + PERF
+     *   Mapper XML 文件 → SECURITY + PERFORMANCE
+     *   .properties/.yml/.yaml 配置文件 → SECURITY
+     *   所有文件 → 至少 BUGS（兜底，Bug 维度永远不跳过）
+     *
+     * @param filePath 文件路径（如 "src/main/java/com/example/UserController.java"）
+     * @return 需要审查的维度集合（如 {"SECURITY", "BUGS", "PERFORMANCE"}）
+     */
     private Set<String> determineDimensions(String filePath) {
         Set<String> dims = new HashSet<>();
-        dims.add("BUGS"); // Always review for bugs
+        dims.add("BUGS"); // 所有文件都至少审查 Bug 维度
 
         String lower = filePath.toLowerCase();
 
-        // Security-relevant files
+        // 安全相关文件
         if (lower.contains("controller") || lower.contains("service") ||
                 lower.contains("repository") || lower.contains("dao") ||
                 lower.contains("filter") || lower.contains("security") ||
@@ -99,19 +145,19 @@ public class ParseDiffNode {
             dims.add("SECURITY");
         }
 
-        // Performance-relevant files
+        // 性能相关文件
         if (lower.contains("service") || lower.contains("repository") ||
                 lower.contains("dao") || lower.contains("mapper")) {
             dims.add("PERFORMANCE");
         }
 
-        // SQL/XML files
+        // SQL/XML 文件
         if (lower.endsWith(".xml") && (lower.contains("mapper") || lower.contains("mybatis"))) {
             dims.add("SECURITY");
             dims.add("PERFORMANCE");
         }
 
-        // Config files
+        // 配置文件
         if (lower.endsWith(".properties") || lower.endsWith(".yml") || lower.endsWith(".yaml")) {
             dims.add("SECURITY");
         }

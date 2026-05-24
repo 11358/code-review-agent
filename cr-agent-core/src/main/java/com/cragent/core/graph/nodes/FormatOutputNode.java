@@ -15,6 +15,11 @@ public class FormatOutputNode {
 
     private static final Logger log = LoggerFactory.getLogger(FormatOutputNode.class);
 
+    /**
+     * 将 findings_result + changed_files 组装为 ReviewResult，
+     * 调用 ReviewSummary.from() 统计严重度/类别/文件分布，计算端到端耗时。
+     * 产出 "review_result" key。
+     */
     @SuppressWarnings("unchecked")
     public Map<String, Object> execute(Map<String, Object> state) {
         String repoPath = (String) state.getOrDefault("repo_path", "");
@@ -32,14 +37,14 @@ public class FormatOutputNode {
         long startTime = state.containsKey("_start_time") ? (long) state.get("_start_time") : System.currentTimeMillis();
         result.setDurationMs(System.currentTimeMillis() - startTime);
 
-        log.info("Review complete: {} total findings, {} CRITICAL, {} WARNING, {} INFO",
+        log.info("审查完成: {} 条发现, 严重度 {}, 类别 {}",
                 result.getSummary().getTotalFindings(),
                 result.getSummary().getSeverityCounts(),
                 result.getSummary().getCategoryCounts());
 
         Map<String, Object> output = new HashMap<>();
         output.put("review_result", result);
-        output.put("agent_decisions", "format: final report generated");
+        output.put("agent_decisions", "format: 最终报告已生成");
         return output;
     }
 }

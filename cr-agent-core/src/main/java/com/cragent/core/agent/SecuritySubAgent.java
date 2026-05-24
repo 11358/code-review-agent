@@ -113,11 +113,12 @@ public class SecuritySubAgent implements SubAgent {
 
             return parseFindings(response);
         } catch (Exception e) {
-            log.error("Error during security review: {}", e.getMessage(), e);
+            log.error("安全检查出错: {}", e.getMessage(), e);
             return List.of();
         }
     }
 
+    /** ⚠ 自行实现 JSON 解析（与 AbstractSubAgent.parseFindings 重复）。待重构。 */
     List<ReviewFinding> parseFindings(String response) {
         if (response == null || response.isBlank()) return List.of();
         try {
@@ -132,7 +133,7 @@ public class SecuritySubAgent implements SubAgent {
                 f.setLineEnd(getInt(item, "lineEnd"));
                 f.setSeverity(Severity.fromString(getString(item, "severity")));
                 f.setCategory(ReviewCategory.fromString(getString(item, "category")));
-                log.debug("Security parsed category '{}' -> {}", getString(item, "category"), f.getCategory());
+                log.debug("安全审查解析类别 '{}' -> {}", getString(item, "category"), f.getCategory());
                 f.setDimension("SECURITY");
                 f.setExplanation(getString(item, "explanation"));
                 f.setSuggestion(getString(item, "suggestion"));
@@ -140,11 +141,15 @@ public class SecuritySubAgent implements SubAgent {
             }
             return findings;
         } catch (Exception e) {
-            log.warn("Failed to parse security review JSON: {}", e.getMessage());
+            log.warn("安全审查 JSON 解析失败: {}", e.getMessage());
             return List.of();
         }
     }
 
+    /**
+     * 从 LLM 响应中提取 JSON 数组。
+     * LLM 经常在 JSON 外面包 markdown 代码块或说明文字，这个方法找到第一个 [ 和最后一个 ] 之间的内容。
+     */
     private String extractJson(String response) {
         String trimmed = response.trim();
         int start = trimmed.indexOf('[');
@@ -153,11 +158,13 @@ public class SecuritySubAgent implements SubAgent {
         return trimmed;
     }
 
+    /** 从解析后的 Map 中安全取值，null 时返回空字符串 */
     private String getString(Map<String, Object> map, String key) {
         Object v = map.getOrDefault(key, "");
         return v != null ? v.toString() : "";
     }
 
+    /** 从解析后的 Map 中安全取整数，null/非数字时返回 0 */
     private int getInt(Map<String, Object> map, String key) {
         Object v = map.getOrDefault(key, 0);
         if (v instanceof Number n) return n.intValue();
