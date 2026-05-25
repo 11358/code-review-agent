@@ -127,6 +127,7 @@ public class ReviewStateGraph {
         log.info("确定性扫描: {} 条发现（100% 置信度，跳过验证）", deterministicCount);
 
         // 裁切确定性命中行，让 LLM 不再重复报
+        // 将 finding 的行号区间展开为逐行 key（file:line），供 stripContent O(1) 查找
         Set<String> detLineSet = new HashSet<>();
         for (ReviewFinding f : detFindings) {
             for (int line = f.getLineStart(); line <= f.getLineEnd(); line++) {

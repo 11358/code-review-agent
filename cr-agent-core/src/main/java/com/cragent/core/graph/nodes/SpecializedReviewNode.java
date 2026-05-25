@@ -72,12 +72,11 @@ public class SpecializedReviewNode {
             diffToReview = diffToReview.substring(0, 500_000) + "\n... [diff 已截断] ...";
         }
 
-        // 多轮并集：跑 N 轮，保留所有唯一 finding（最大化召回）
+        // 多轮并集：跑 N 轮，有一轮报了就要（最大化召回）
         // 误报由后续 DeepSeek 交叉验证过滤
         log.info("开始 {} 审查 ({} 字符, {} 轮 — 并集模式)...", dimension, diffToReview.length(), runs);
 
         Map<String, ReviewFinding> union = new LinkedHashMap<>();
-        Map<String, Integer> occurrenceCount = new HashMap<>();
         int totalRaw = 0;
 
         for (int run = 1; run <= runs; run++) {
@@ -86,18 +85,15 @@ public class SpecializedReviewNode {
             log.info("{} 审查 第{}/{}轮: {} 条发现", dimension, run, runs, findings.size());
 
             for (ReviewFinding f : findings) {
-                String key = f.uniqueKey();
-                occurrenceCount.merge(key, 1, Integer::sum);
-                // 保留 explanation 最详细的版本
-                union.merge(key, f, (existing, incoming) ->
+                union.merge(f.uniqueKey(), f, (existing, incoming) ->
                         incoming.getExplanation().length() > existing.getExplanation().length() ? incoming : existing);
             }
         }
 
         List<ReviewFinding> result = new ArrayList<>(union.values());
 
-        log.info("{} 审查并集: {} 条原始 × {} 轮 → {} 条唯一发现 (投票: {})",
-                dimension, totalRaw, runs, result.size(), occurrenceCount);
+        log.info("{} 审查并集: {} 条原始 × {} 轮 → {} 条唯一发现",
+                dimension, totalRaw, runs, result.size());
 
         return Map.of(stateKey, result,
                 "agent_decisions", dimension.toLowerCase() + "_review: " + result.size() + " 条唯一发现 (" + runs + " 轮并集)");

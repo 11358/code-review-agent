@@ -101,7 +101,7 @@ public class ParseDiffNode {
      */
     private List<DiffChunk> chunkByFile(String diff, List<ChangedFile> changedFiles) {
         List<DiffChunk> chunks = new ArrayList<>();
-        String[] fileSections = diff.split("(?=^diff --git )");
+        String[] fileSections = diff.split("(?m)^(?=diff --git )");
 
         for (String section : fileSections) {
             if (section.isBlank()) continue;

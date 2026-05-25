@@ -21,7 +21,12 @@ public class ReviewOrchestrationService {
         this.stateGraph = stateGraph;
     }
 
+    /**
+     * 同步审查入口：触达 StateGraph 跑完 9 步流水线，从返回的 Map 中取出最终 ReviewResult。
+     * 本身无业务逻辑，只做路径规范化 + 空结果兜底，core 模块的内部变更只影响这一层。
+     */
     public ReviewResult review(String repoPath, String baseRef, String headRef) {
+        // Windows 反斜杠归一化，否则 JSON 序列化会乱码
         repoPath = repoPath.replace('\\', '/');
         log.info("开始审查: repo={}, {} -> {}", repoPath, baseRef, headRef);
 
