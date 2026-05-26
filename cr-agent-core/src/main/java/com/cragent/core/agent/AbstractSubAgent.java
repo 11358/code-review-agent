@@ -15,7 +15,7 @@ import java.util.Map;
 
 /**
  * Agent 基类，封装 LLM 调用和 JSON 解析的通用逻辑。
- * BugSubAgent 和 PerformanceSubAgent 继承此类，SecuritySubAgent 未继承（自行实现，有重复代码）。
+ * BugSubAgent、PerformanceSubAgent、SecuritySubAgent 均继承此类。
  */
 public abstract class AbstractSubAgent implements SubAgent {
 
@@ -88,7 +88,10 @@ public abstract class AbstractSubAgent implements SubAgent {
                 f.setDimension(dimension);
                 f.setExplanation(getString(item, "explanation"));
                 f.setSuggestion(getString(item, "suggestion"));
-                findings.add(f);
+                // 过滤 LLM 产生的空壳 finding（缺文件或行号）
+                if (!f.getFile().isBlank() && f.getLineStart() > 0) {
+                    findings.add(f);
+                }
             }
             return findings;
         } catch (Exception e) {

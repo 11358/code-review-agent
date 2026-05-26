@@ -11,7 +11,6 @@ public class ReviewResult {
     private List<ReviewFinding> findings = new ArrayList<>();
     private ReviewSummary summary;
     private long durationMs;
-    private List<String> agentDecisionTrace = new ArrayList<>();
 
     public String getRepoPath() { return repoPath; }
     public void setRepoPath(String repoPath) { this.repoPath = repoPath; }
@@ -33,13 +32,6 @@ public class ReviewResult {
 
     public long getDurationMs() { return durationMs; }
     public void setDurationMs(long durationMs) { this.durationMs = durationMs; }
-
-    public List<String> getAgentDecisionTrace() { return agentDecisionTrace; }
-    public void setAgentDecisionTrace(List<String> agentDecisionTrace) { this.agentDecisionTrace = agentDecisionTrace; }
-
-    public void addTrace(String message) {
-        this.agentDecisionTrace.add(message);
-    }
 
     public static ReviewResult empty(String repoPath, String baseRef, String headRef) {
         ReviewResult result = new ReviewResult();

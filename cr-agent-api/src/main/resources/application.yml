@@ -28,7 +28,7 @@ cragent:
   review:
     max-diff-size: 500000
     chunk-size: 200
-    agent-runs: 5
+    agent-runs: 3
     sub-agent-timeout: 120
     verification:
       enabled: true

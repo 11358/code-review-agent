@@ -46,7 +46,7 @@ public enum ReviewCategory {
         if (normalized.contains("XSS") || normalized.contains("CROSS")) return XSS;
         if (normalized.contains("PATH") || normalized.contains("TRAVERSAL") || normalized.contains("DIRECTORY")) return PATH_TRAVERSAL;
         if (normalized.contains("COMMAND") || normalized.contains("INJECTION") || normalized.contains("EXEC")) return COMMAND_INJECTION;
-        if (normalized.contains("SENSITIVE") || normalized.contains("SECRET") || normalized.contains("EXPOSURE") || normalized.contains("LEAK")
+        if (normalized.contains("SENSITIVE") || normalized.contains("SECRET") || normalized.contains("EXPOSURE")
                 || normalized.contains("PASSWORD") || normalized.contains("CREDENTIAL") || normalized.contains("HARDCODED")) return SENSITIVE_DATA_EXPOSURE;
         if (normalized.contains("DESERIAL") || normalized.contains("SERIAL")) return INSECURE_DESERIALIZATION;
         if (normalized.contains("AUTH") || normalized.contains("PERMISSION") || normalized.contains("BYPASS")) return AUTH_BYPASS;
@@ -62,9 +62,10 @@ public enum ReviewCategory {
 
         // 性能
         if (normalized.contains("N_PLUS") || normalized.contains("N+1") || normalized.contains("QUERY_IN_LOOP")) return N_PLUS_ONE_QUERY;
-        if (normalized.contains("ALLOCATION") || normalized.contains("EXCESSIVE") || normalized.contains("BOXING")) return EXCESSIVE_ALLOCATION;
+        if (normalized.contains("ALLOCATION") || normalized.contains("EXCESSIVE") || normalized.contains("BOXING")
+                || normalized.contains("STRING_CONCAT") || normalized.contains("CONCATENATION")) return EXCESSIVE_ALLOCATION;
+        if (normalized.contains("REGEX") || normalized.contains("RECOMPILATION") || normalized.contains("CACHE") || normalized.contains("CACHING")) return MISSING_CACHE;
         if (normalized.contains("DATA_STRUCTURE") || normalized.contains("COLLECTION") || normalized.contains("INEFFICIENT")) return INEFFICIENT_DATA_STRUCTURE;
-        if (normalized.contains("CACHE") || normalized.contains("CACHING")) return MISSING_CACHE;
         if (normalized.contains("SYNC") || normalized.contains("SYNCHRONIZED") || normalized.contains("LOCK") || normalized.contains("BOTTLENECK")) return SYNC_BOTTLENECK;
         if (normalized.contains("BUFFER") || normalized.contains("IO") || normalized.contains("UNBUFFERED")) return UNBUFFERED_IO;
         if (normalized.contains("THREAD") || normalized.contains("POOL") || normalized.contains("EXECUTOR")) return THREAD_POOL_MISUSE;

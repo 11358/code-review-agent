@@ -24,6 +24,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class GitService {
@@ -80,43 +82,23 @@ public class GitService {
         }
     }
 
-    /** 列出两个 ref 之间的变更文件列表（含每个文件增删行数统计） */
+    /** 列出两个 ref 之间的变更文件列表（含每个文件增删行数统计）。复用 diff() 避免逐文件创建 DiffFormatter。 */
     public List<ChangedFileInfo> listChangedFiles(String repoPath, String baseRef, String headRef) {
-        try (Repository repo = openRepo(repoPath);
-             Git git = new Git(repo)) {
+        String fullDiff = diff(repoPath, baseRef, headRef, null);
+        List<ChangedFileInfo> result = new ArrayList<>();
+        if (fullDiff == null || fullDiff.isBlank()) return result;
 
-            AbstractTreeIterator oldTree = resolveTree(repo, baseRef);
-            AbstractTreeIterator newTree = resolveTree(repo, headRef);
-
-            List<DiffEntry> entries = git.diff()
-                    .setOldTree(oldTree)
-                    .setNewTree(newTree)
-                    .call();
-
-            List<ChangedFileInfo> result = new ArrayList<>();
-            for (DiffEntry entry : entries) {
-                ChangedFileInfo info = new ChangedFileInfo();
-                info.setFilePath(entry.getNewPath());
-                info.setChangeType(mapChangeType(entry.getChangeType()));
-
-                // Count additions/deletions by parsing the diff
-                try (ByteArrayOutputStream out = new ByteArrayOutputStream();
-                     DiffFormatter formatter = new DiffFormatter(out)) {
-                    formatter.setRepository(repo);
-                    formatter.format(entry);
-                    formatter.flush();
-                    String diffText = out.toString(StandardCharsets.UTF_8);
-                    int[] counts = countChanges(diffText);
-                    info.setAdditions(counts[0]);
-                    info.setDeletions(counts[1]);
-                }
-
-                result.add(info);
-            }
-            return result;
-        } catch (Exception e) {
-            throw new RuntimeException("列出变更文件失败: " + e.getMessage(), e);
+        for (String section : fullDiff.split("(?m)^(?=diff --git )")) {
+            if (section.isBlank()) continue;
+            ChangedFileInfo info = new ChangedFileInfo();
+            info.setFilePath(extractFilePath(section));
+            info.setChangeType(extractChangeType(section));
+            int[] counts = countChanges(section);
+            info.setAdditions(counts[0]);
+            info.setDeletions(counts[1]);
+            result.add(info);
         }
+        return result;
     }
 
     /** 读取指定 ref 下的某个文件内容 */
@@ -147,57 +129,42 @@ public class GitService {
         }
     }
 
-    /** 统计两个 ref 之间的变更总览（文件数 + 总增删行数 + 每个文件明细） */
+    /** 统计两个 ref 之间的变更总览（文件数 + 总增删行数 + 每个文件明细）。复用 diff() 避免逐文件创建 DiffFormatter。 */
     public DiffStat diffStat(String repoPath, String baseRef, String headRef) {
-        try (Repository repo = openRepo(repoPath);
-             Git git = new Git(repo)) {
+        String fullDiff = diff(repoPath, baseRef, headRef, null);
+        DiffStat stat = new DiffStat();
+        stat.setFiles(new ArrayList<>());
+        if (fullDiff == null || fullDiff.isBlank()) return stat;
 
-            AbstractTreeIterator oldTree = resolveTree(repo, baseRef);
-            AbstractTreeIterator newTree = resolveTree(repo, headRef);
-
-            List<DiffEntry> entries = git.diff()
-                    .setOldTree(oldTree)
-                    .setNewTree(newTree)
-                    .call();
-
-            DiffStat stat = new DiffStat();
-            stat.setTotalFiles(entries.size());
-            stat.setTotalAdditions(0);
-            stat.setTotalDeletions(0);
-            stat.setFiles(new ArrayList<>());
-
-            for (DiffEntry entry : entries) {
-                DiffStat.FileStat fs = new DiffStat.FileStat();
-                fs.setFilePath(entry.getNewPath());
-                fs.setChangeType(mapChangeType(entry.getChangeType()));
-
-                try (ByteArrayOutputStream out = new ByteArrayOutputStream();
-                     DiffFormatter formatter = new DiffFormatter(out)) {
-                    formatter.setRepository(repo);
-                    formatter.format(entry);
-                    formatter.flush();
-                    String diffText = out.toString(StandardCharsets.UTF_8);
-                    int[] counts = countChanges(diffText);
-                    fs.setAdditions(counts[0]);
-                    fs.setDeletions(counts[1]);
-                    stat.setTotalAdditions(stat.getTotalAdditions() + counts[0]);
-                    stat.setTotalDeletions(stat.getTotalDeletions() + counts[1]);
-                }
-
-                stat.getFiles().add(fs);
-            }
-            return stat;
-        } catch (Exception e) {
-            throw new RuntimeException("Diff 统计失败: " + e.getMessage(), e);
+        int totalAdd = 0, totalDel = 0;
+        for (String section : fullDiff.split("(?m)^(?=diff --git )")) {
+            if (section.isBlank()) continue;
+            DiffStat.FileStat fs = new DiffStat.FileStat();
+            fs.setFilePath(extractFilePath(section));
+            fs.setChangeType(extractChangeType(section));
+            int[] counts = countChanges(section);
+            fs.setAdditions(counts[0]);
+            fs.setDeletions(counts[1]);
+            totalAdd += counts[0];
+            totalDel += counts[1];
+            stat.getFiles().add(fs);
         }
+        stat.setTotalFiles(stat.getFiles().size());
+        stat.setTotalAdditions(totalAdd);
+        stat.setTotalDeletions(totalDel);
+        return stat;
     }
 
-    /** 打开本地 Git 仓库，创建 JGit Repository 对象 */
+    /** 打开本地 Git 仓库，创建 JGit Repository 对象。校验路径合法性防止目录遍历。 */
     private Repository openRepo(String repoPath) throws IOException {
-        File repoDir = new File(repoPath);
-        if (!repoDir.exists()) {
-            throw new IllegalArgumentException("仓库路径不存在: " + repoPath);
+        Path path = Path.of(repoPath).toRealPath();
+        String normalized = path.toString().replace('\\', '/');
+        if (normalized.startsWith("/etc/") || normalized.startsWith("/proc/")
+                || normalized.startsWith("/sys/") || normalized.equals("/")
+                || normalized.startsWith("C:/Windows") || normalized.startsWith("C:/WINDOWS")) {
+            throw new IllegalArgumentException("不允许访问系统目录: " + repoPath);
         }
+        File repoDir = path.toFile();
         return new FileRepositoryBuilder()
                 .setGitDir(new File(repoDir, ".git"))
                 .readEnvironment()
@@ -221,15 +188,21 @@ public class GitService {
         }
     }
 
-    /** JGit ChangeType 转换为字符串 */
-    private String mapChangeType(DiffEntry.ChangeType type) {
-        return switch (type) {
-            case ADD -> "ADDED";
-            case MODIFY -> "MODIFIED";
-            case DELETE -> "DELETED";
-            case RENAME -> "RENAMED";
-            case COPY -> "COPIED";
-        };
+    /** 从 diff 片段头 extract 文件路径（diff --git a/xxx b/yyy → b 路径） */
+    private static final Pattern DIFF_FILE = Pattern.compile("^diff --git a/(.+) b/(.+)$", Pattern.MULTILINE);
+
+    private String extractFilePath(String diffSection) {
+        Matcher m = DIFF_FILE.matcher(diffSection);
+        return m.find() ? m.group(2) : "unknown";
+    }
+
+    /** 从 diff 片段推断变更类型 */
+    private String extractChangeType(String diffSection) {
+        if (diffSection.contains("\nrename from ")) return "RENAMED";
+        if (diffSection.contains("\ncopy from ")) return "COPIED";
+        if (diffSection.contains("\nnew file mode")) return "ADDED";
+        if (diffSection.contains("\ndeleted file mode")) return "DELETED";
+        return "MODIFIED";
     }
 
     /** 统计一段 diff 文本中的新增行数和删除行数 */

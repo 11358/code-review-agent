@@ -3,7 +3,6 @@ package com.cragent.core.agent;
 import com.cragent.core.model.ReviewCategory;
 import com.cragent.core.model.ReviewFinding;
 import com.cragent.core.model.Severity;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -17,8 +16,7 @@ import java.util.Map;
 
 /**
  * 全能型 Agent：单 Prompt 覆盖安全/Bug/性能三个维度。
- * @Component 自动注册，但主流水线不使用（用三个专业 Agent 替代），
- * 保留用于独立测试或对比实验。
+ * 主流水线不使用，保留用于独立测试或对比实验。
  */
 @Component
 public class GeneralSubAgent implements SubAgent {

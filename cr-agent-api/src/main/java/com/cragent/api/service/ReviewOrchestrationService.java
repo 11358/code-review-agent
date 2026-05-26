@@ -1,5 +1,6 @@
 package com.cragent.api.service;
 
+import com.cragent.core.graph.ReviewState;
 import com.cragent.core.graph.ReviewStateGraph;
 import com.cragent.core.model.ReviewResult;
 import org.slf4j.Logger;
@@ -26,13 +27,12 @@ public class ReviewOrchestrationService {
      * 本身无业务逻辑，只做路径规范化 + 空结果兜底，core 模块的内部变更只影响这一层。
      */
     public ReviewResult review(String repoPath, String baseRef, String headRef) {
-        // Windows 反斜杠归一化，否则 JSON 序列化会乱码
         repoPath = repoPath.replace('\\', '/');
         log.info("开始审查: repo={}, {} -> {}", repoPath, baseRef, headRef);
 
-        Map<String, Object> result = stateGraph.execute(repoPath, baseRef, headRef);
+        ReviewState state = stateGraph.execute(repoPath, baseRef, headRef);
 
-        ReviewResult reviewResult = (ReviewResult) result.get("review_result");
+        ReviewResult reviewResult = state.getReviewResult();
         if (reviewResult == null) {
             log.warn("未生成审查结果");
             return ReviewResult.empty(repoPath, baseRef, headRef);

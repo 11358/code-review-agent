@@ -65,7 +65,7 @@ public class CrAgentCoreAutoConfiguration {
         return ChatClient.builder(chatModel);
     }
 
-    /** SecuritySubAgent：OWASP 安全审查（注意：未继承 AbstractSubAgent，有重复代码） */
+    /** SecuritySubAgent：OWASP 安全审查，继承 AbstractSubAgent */
     @Bean
     public SubAgent securitySubAgent(ChatClient.Builder chatClientBuilder, ObjectMapper objectMapper) {
         return new SecuritySubAgent(chatClientBuilder, objectMapper);

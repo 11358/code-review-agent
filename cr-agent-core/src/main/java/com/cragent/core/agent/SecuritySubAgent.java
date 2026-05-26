@@ -1,24 +1,12 @@
 package com.cragent.core.agent;
 
-import com.cragent.core.model.ReviewCategory;
 import com.cragent.core.model.ReviewFinding;
-import com.cragent.core.model.Severity;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
-public class SecuritySubAgent implements SubAgent {
-
-    private static final Logger log = LoggerFactory.getLogger(SecuritySubAgent.class);
-
-    private final ChatClient chatClient;
-    private final ObjectMapper objectMapper;
+public class SecuritySubAgent extends AbstractSubAgent {
 
     private static final String SYSTEM_PROMPT = """
             You are a Security Code Review Specialist for Java code. Your expertise is OWASP Top 10 and Java security.
@@ -78,10 +66,7 @@ public class SecuritySubAgent implements SubAgent {
             """;
 
     public SecuritySubAgent(ChatClient.Builder chatClientBuilder, ObjectMapper objectMapper) {
-        this.chatClient = chatClientBuilder
-                .defaultSystem(SYSTEM_PROMPT)
-                .build();
-        this.objectMapper = objectMapper;
+        super(chatClientBuilder, objectMapper, SYSTEM_PROMPT);
     }
 
     @Override
@@ -91,83 +76,6 @@ public class SecuritySubAgent implements SubAgent {
 
     @Override
     public List<ReviewFinding> review(String diffContent, List<String> changedFilePaths) {
-        String fileList = String.join("\n", changedFilePaths);
-
-        try {
-            String response = chatClient.prompt()
-                    .user(u -> u.text("""
-                            Review the following git diff for SECURITY vulnerabilities only.
-
-                            Changed files:
-                            {files}
-
-                            Diff content:
-                            {diff}
-
-                            Return your findings as a JSON array.
-                            """)
-                            .param("files", fileList)
-                            .param("diff", diffContent))
-                    .call()
-                    .content();
-
-            return parseFindings(response);
-        } catch (Exception e) {
-            log.error("安全检查出错: {}", e.getMessage(), e);
-            return List.of();
-        }
-    }
-
-    /** ⚠ 自行实现 JSON 解析（与 AbstractSubAgent.parseFindings 重复）。待重构。 */
-    List<ReviewFinding> parseFindings(String response) {
-        if (response == null || response.isBlank()) return List.of();
-        try {
-            String json = extractJson(response);
-            List<Map<String, Object>> raw = objectMapper.readValue(json,
-                    new TypeReference<List<Map<String, Object>>>() {});
-            List<ReviewFinding> findings = new ArrayList<>();
-            for (Map<String, Object> item : raw) {
-                ReviewFinding f = new ReviewFinding();
-                f.setFile(getString(item, "file"));
-                f.setLineStart(getInt(item, "lineStart"));
-                f.setLineEnd(getInt(item, "lineEnd"));
-                f.setSeverity(Severity.fromString(getString(item, "severity")));
-                f.setCategory(ReviewCategory.fromString(getString(item, "category")));
-                log.debug("安全审查解析类别 '{}' -> {}", getString(item, "category"), f.getCategory());
-                f.setDimension("SECURITY");
-                f.setExplanation(getString(item, "explanation"));
-                f.setSuggestion(getString(item, "suggestion"));
-                findings.add(f);
-            }
-            return findings;
-        } catch (Exception e) {
-            log.warn("安全审查 JSON 解析失败: {}", e.getMessage());
-            return List.of();
-        }
-    }
-
-    /**
-     * 从 LLM 响应中提取 JSON 数组。
-     * LLM 经常在 JSON 外面包 markdown 代码块或说明文字，这个方法找到第一个 [ 和最后一个 ] 之间的内容。
-     */
-    private String extractJson(String response) {
-        String trimmed = response.trim();
-        int start = trimmed.indexOf('[');
-        int end = trimmed.lastIndexOf(']');
-        if (start >= 0 && end > start) return trimmed.substring(start, end + 1);
-        return trimmed;
-    }
-
-    /** 从解析后的 Map 中安全取值，null 时返回空字符串 */
-    private String getString(Map<String, Object> map, String key) {
-        Object v = map.getOrDefault(key, "");
-        return v != null ? v.toString() : "";
-    }
-
-    /** 从解析后的 Map 中安全取整数，null/非数字时返回 0 */
-    private int getInt(Map<String, Object> map, String key) {
-        Object v = map.getOrDefault(key, 0);
-        if (v instanceof Number n) return n.intValue();
-        try { return Integer.parseInt(v.toString()); } catch (NumberFormatException e) { return 0; }
+        return doReview(diffContent, changedFilePaths, "SECURITY");
     }
 }

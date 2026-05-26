@@ -1,6 +1,8 @@
 package com.cragent.core.graph.nodes;
 
 import com.cragent.core.agent.SubAgent;
+import com.cragent.core.graph.ReviewState;
+import com.cragent.core.model.DiffChunk;
 import com.cragent.core.model.ReviewFinding;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,26 +14,15 @@ public class SpecializedReviewNode {
     private static final Logger log = LoggerFactory.getLogger(SpecializedReviewNode.class);
 
     private final SubAgent subAgent;
-    private final String stateKey;
     private final int runs;
 
-    public SpecializedReviewNode(SubAgent subAgent, String stateKey) {
-        this(subAgent, stateKey, 3);
-    }
-
     /**
-     * @param subAgent  注入的审查 Agent（Security/Bug/Performance）
-     * @param stateKey  输出到 state Map 时用的 key（如 "security_findings"）
-     * @param runs      多轮并集轮数（默认 3）
+     * @param subAgent 注入的审查 Agent（Security/Bug/Performance）
+     * @param runs     多轮并集轮数（默认 3）
      */
-    public SpecializedReviewNode(SubAgent subAgent, String stateKey, int runs) {
+    public SpecializedReviewNode(SubAgent subAgent, int runs) {
         this.subAgent = subAgent;
-        this.stateKey = stateKey;
         this.runs = Math.max(1, runs);
-    }
-
-    public String getStateKey() {
-        return stateKey;
     }
 
     public String getDimensionName() {
@@ -39,22 +30,17 @@ public class SpecializedReviewNode {
     }
 
     /**
-     * 通用审查节点执行逻辑：过滤 chunk → 截断 → 多轮并集 → 返回结果。
-     *
-     * 每个 Agent 只审查 relevantDimensions 中包含自己维度的 chunk，
-     * 然后跑 N 轮取 UNION（有一轮报了就要），最大化召回。
-     * 误报留给后续 DeepSeek 交叉验证过滤。
+     * 过滤 chunk → 截断 → 多轮并集 → 通过 state.setFindingsByDimension 写入对应字段。
      */
-    @SuppressWarnings("unchecked")
-    public Map<String, Object> execute(Map<String, Object> state) {
-        String rawDiff = (String) state.getOrDefault("raw_diff", "");
-        List<ParseDiffNode.DiffChunk> chunks = (List<ParseDiffNode.DiffChunk>) state.get("diff_chunks");
+    public void execute(ReviewState state) {
+        String rawDiff = state.getRawDiff();
+        List<DiffChunk> chunks = state.getDiffChunks();
 
         String dimension = subAgent.getDimensionName();
         StringBuilder relevantDiff = new StringBuilder();
 
         if (chunks != null) {
-            for (ParseDiffNode.DiffChunk chunk : chunks) {
+            for (DiffChunk chunk : chunks) {
                 if (chunk.getRelevantDimensions().contains(dimension)) {
                     relevantDiff.append("=== ").append(chunk.getFilePath()).append(" ===\n");
                     relevantDiff.append(chunk.getContent()).append("\n\n");
@@ -62,19 +48,30 @@ public class SpecializedReviewNode {
             }
         }
 
-        String diffToReview = !relevantDiff.isEmpty() ? relevantDiff.toString() : rawDiff;
+        // 有 chunk 路由信息时，若无匹配维度则跳过 LLM 调用（省 token）
+        // 无 chunk 时（parse 失败等）fallback 到 rawDiff
+        String diffToReview;
+        if (chunks != null && !chunks.isEmpty() && relevantDiff.isEmpty()) {
+            log.info("维度 {} 无匹配 chunk，跳过 LLM 审查", dimension);
+            state.setFindingsByDimension(dimension, List.of());
+            return;
+        }
+        diffToReview = !relevantDiff.isEmpty() ? relevantDiff.toString() : rawDiff;
         if (diffToReview == null || diffToReview.isBlank()) {
             log.info("维度 {} 无相关 diff 内容", dimension);
-            return Map.of(stateKey, List.of());
+            state.setFindingsByDimension(dimension, List.of());
+            return;
         }
 
         if (diffToReview.length() > 500_000) {
             diffToReview = diffToReview.substring(0, 500_000) + "\n... [diff 已截断] ...";
         }
 
-        // 多轮并集：跑 N 轮，有一轮报了就要（最大化召回）
-        // 误报由后续 DeepSeek 交叉验证过滤
+        log.info("{} chunks={} relevantEmpty={} rawLen={}", dimension,
+                chunks != null ? chunks.size() : -1, relevantDiff.isEmpty(), rawDiff != null ? rawDiff.length() : -1);
         log.info("开始 {} 审查 ({} 字符, {} 轮 — 并集模式)...", dimension, diffToReview.length(), runs);
+        log.info("{} diff[0..300]: {}", dimension,
+                diffToReview.length() > 300 ? diffToReview.substring(0, 300) : diffToReview);
 
         Map<String, ReviewFinding> union = new LinkedHashMap<>();
         int totalRaw = 0;
@@ -95,7 +92,6 @@ public class SpecializedReviewNode {
         log.info("{} 审查并集: {} 条原始 × {} 轮 → {} 条唯一发现",
                 dimension, totalRaw, runs, result.size());
 
-        return Map.of(stateKey, result,
-                "agent_decisions", dimension.toLowerCase() + "_review: " + result.size() + " 条唯一发现 (" + runs + " 轮并集)");
+        state.setFindingsByDimension(dimension, result);
     }
 }

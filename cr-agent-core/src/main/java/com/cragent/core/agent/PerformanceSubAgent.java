@@ -61,7 +61,15 @@ public class PerformanceSubAgent extends AbstractSubAgent {
             - Use WARNING for String+= loops, regex recompilation, unbuffered I/O.
             - Use INFO for minor optimization suggestions.
             - Every finding MUST name the specific line and variable involved.
-            - Use lowercase-kebab-case for category: n-plus-one-query, excessive-allocation, inefficient-data-structure, missing-cache, sync-bottleneck, unbuffered-io, thread-pool-misuse, memory-leak
+            - CRITICAL: Only use these EXACT category values:
+              n-plus-one-query (N+1 DB calls in loops)
+              excessive-allocation (String += in loops)
+              missing-cache (Pattern.compile called repeatedly, String.matches not cached)
+              unbuffered-io (file I/O without Buffered wrapper)
+              inefficient-data-structure (ArrayList.contains, LinkedList random access)
+              thread-pool-misuse (newCachedThreadPool, no ThreadLocal.remove)
+              memory-leak (unbounded static collections)
+              sync-bottleneck (excessive synchronized blocks)
             """;
 
     public PerformanceSubAgent(ChatClient.Builder chatClientBuilder, ObjectMapper objectMapper) {
